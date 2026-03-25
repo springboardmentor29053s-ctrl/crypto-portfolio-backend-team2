@@ -12,6 +12,7 @@ import com.crypto_portfolio_tracker.repository.HoldingRepository;
 import com.crypto_portfolio_tracker.repository.PortfolioHistoryRepository;
 import com.crypto_portfolio_tracker.repository.TradeRecordRepository;
 import com.crypto_portfolio_tracker.repository.UserRepository;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -27,6 +28,12 @@ import java.util.Map;
 
 @Service
 public class PortfolioService {
+
+    @Value("${binance.api.base-url}")
+    private String baseUrl;
+
+    @Value("${binance.api.ticker-price}")
+    private String tickerPriceEndpoint;
 
      private final TradeRecordRepository tradeRecordRepo;
      private final HoldingRepository holdingRepo;
@@ -175,7 +182,7 @@ public class PortfolioService {
 
     private BigDecimal getMarketPrice(String symbol) {
 
-        String url = "https://testnet.binance.vision/api/v3/ticker/price?symbol=" + symbol;
+        String url = baseUrl + tickerPriceEndpoint + "?symbol="+ symbol;
         RestTemplate restTemplate = new RestTemplate();
         Map<String, String> response = restTemplate.getForObject(url, Map.class);
         return new BigDecimal(response.get("price"));
@@ -240,7 +247,7 @@ public class PortfolioService {
         }
     }
 
-    //realized and unrealizepnl with total value
+    //realized and unrealizablepnl with total value
     public PortfolioSummaryResponse getPortfolioSummary(UserEntity user) {
 
         List<Holding> holdings = holdingRepo.findByUser(user);
