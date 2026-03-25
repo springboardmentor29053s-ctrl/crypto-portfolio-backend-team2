@@ -2,7 +2,6 @@ package com.crypto_portfolio_tracker.repository;
 
 import com.crypto_portfolio_tracker.model.UserEntity;
 import org.springframework.data.jpa.repository.JpaRepository;
-
 import java.util.Optional;
 
 

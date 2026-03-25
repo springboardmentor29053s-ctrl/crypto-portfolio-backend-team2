@@ -10,7 +10,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 
-import java.util.Optional;
+import java.util.Map;
 
 @Service
 public class SignUpServiceImpl implements SignUpService {
@@ -19,11 +19,13 @@ public class SignUpServiceImpl implements SignUpService {
     private final PasswordEncoder passwordEncoder;
     private final JwtUtil jwtUtil;
 
+
     @SuppressWarnings("unused")
-    public SignUpServiceImpl(UserRepository userRepository, PasswordEncoder passwordEncoder, JwtUtil jwtUtil){
+    public SignUpServiceImpl(UserRepository userRepository, PasswordEncoder passwordEncoder, JwtUtil jwtUtil) {
         this.userRepository = userRepository;
         this.passwordEncoder = passwordEncoder;
         this.jwtUtil = jwtUtil;
+
     }
 
     //singUp logic
@@ -45,8 +47,6 @@ public class SignUpServiceImpl implements SignUpService {
                 .body("SignUp Successfully");
 
     }
-
-    //login request
     public ResponseEntity<String> login(LoginRequestDTO request){
 
         UserEntity user = userRepository.findByEmail(request.getEmail())
@@ -54,12 +54,17 @@ public class SignUpServiceImpl implements SignUpService {
 
         if (!passwordEncoder.matches(request.getPassword(), user.getPassword())) {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
-                    .body("Invalid credentials");
+                    .body(Map.of("error", "Invalid credentials").toString());
         }
 
         String token = jwtUtil.generateToken(user.getEmail());
 
-        return ResponseEntity.ok(token);
-
+        return ResponseEntity.ok(
+                Map.of(
+                        "token", token,
+                        "email", user.getEmail()
+                ).toString()
+        );
     }
+
 }
