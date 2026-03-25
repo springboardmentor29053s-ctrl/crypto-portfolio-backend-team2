@@ -23,6 +23,7 @@ public class AuthController {
     // REGISTER
     @PostMapping("/register")
     public String register(@RequestBody User user) {
+        System.out.println("Register API Hit");
         return userService.register(user);
     }
 
