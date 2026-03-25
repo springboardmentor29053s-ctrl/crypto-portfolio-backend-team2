@@ -32,7 +32,8 @@ public class JwtUtil {
     }
 
     public boolean validateToken(String token, String username) {
-        return username.equals(extractUsername(token)) && !isTokenExpired(token);
+        String extractedUsername = extractUsername(token);
+        return extractedUsername.equals(username);
     }
 
     private boolean isTokenExpired(String token) {
@@ -43,12 +44,11 @@ public class JwtUtil {
 
     public String decodeJwtToken(String token){
 
-        String credentials =  Jwts.parser()
+        return Jwts.parser()
                 .setSigningKey(secret)
                 .parseClaimsJws(token)
                 .getBody()
                 .getSubject();
-
-        return credentials;
     }
 }
+

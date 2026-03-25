@@ -1,16 +1,20 @@
 package com.crypto_portfolio_tracker.config;
 
+
 import com.crypto_portfolio_tracker.service.CustomUserDetailsService;
 import org.springframework.boot.autoconfigure.EnableAutoConfiguration;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.security.authentication.AuthenticationManager;
-import org.springframework.security.config.annotation.authentication.builders.AuthenticationManagerBuilder;
+import org.springframework.security.authentication.AuthenticationProvider;
+import org.springframework.security.authentication.dao.DaoAuthenticationProvider;
+import org.springframework.security.config.annotation.authentication.configuration.AuthenticationConfiguration;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
+import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
-import org.springframework.web.client.RestTemplate;
+import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
@@ -26,51 +30,49 @@ public class SecurityConfig {
         return new BCryptPasswordEncoder();
     }
 
-    private final CustomUserDetailsService userDetailsService;
+    private final JwtFilter jwtFilter;
+    private final CustomUserDetailsService customUserDetailsService;
 
-    public SecurityConfig(CustomUserDetailsService userDetailsService) {
-        this.userDetailsService = userDetailsService;
+    public SecurityConfig(JwtFilter jwtFilter, CustomUserDetailsService customUserDetailsService) {
+        this.jwtFilter=jwtFilter;
+        this.customUserDetailsService = customUserDetailsService;
     }
 
     @Bean
-    public AuthenticationManager authenticationManager(
-            HttpSecurity http,
-            PasswordEncoder passwordEncoder
+    public AuthenticationManager authenticationManager(AuthenticationConfiguration configuration
     ) throws Exception {
-
-        AuthenticationManagerBuilder builder =
-                http.getSharedObject(AuthenticationManagerBuilder.class);
-
-        builder
-                .userDetailsService(userDetailsService)
-                .passwordEncoder(passwordEncoder);
-
-        return builder.build();
+        return configuration.getAuthenticationManager();
     }
 
     @Bean
-    public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
+    public SecurityFilterChain securityFilterChain(HttpSecurity http, JwtFilter jwtFilter) throws Exception {
+
         http
-                .csrf(csrf -> csrf.disable())
+                .csrf(AbstractHttpConfigurer::disable)
+                .cors(cors -> cors.configurationSource(corsConfigurationSource()))
+                .authenticationProvider(authenticationProvider())
                 .authorizeHttpRequests(auth -> auth
-                        .requestMatchers("/auth/**",
+                        .requestMatchers("/auth/forgot-password/**",
+                                "/auth/login/**",
+                                "/auth/reset-password/**",
                                 "/user/**",
                                 "/api/coins/**",
-                                "/exchange/binance/btc/**",
-                                "/api/crypto/exchanges/**",
-                                "api/exchanges/connect/**").permitAll()
-                        .anyRequest().authenticated()
-                )
+                                "/api/exchanges/connect/**",
+                                "/api/crypto/exchanges/**").permitAll()
+                        .anyRequest().authenticated())
+
                 .sessionManagement(session ->
                         session.sessionCreationPolicy(
                                 org.springframework.security.config.http.SessionCreationPolicy.STATELESS
                         )
                 )
-                .formLogin(form -> form.disable()) // disable default login page
-                .httpBasic(basic -> basic.disable());
+                .formLogin(AbstractHttpConfigurer::disable) // disable default login page
+                .httpBasic(AbstractHttpConfigurer::disable)
+                .addFilterBefore(jwtFilter, UsernamePasswordAuthenticationFilter.class);
 
         return http.build();
     }
+
 
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
@@ -83,5 +85,13 @@ public class SecurityConfig {
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
         source.registerCorsConfiguration("/**", config);
         return source;
+    }
+
+   @Bean
+    public AuthenticationProvider authenticationProvider() {
+        DaoAuthenticationProvider authProvider = new DaoAuthenticationProvider();
+        authProvider.setUserDetailsService(customUserDetailsService);
+        authProvider.setPasswordEncoder(passwordEncoder());
+        return authProvider;
     }
 }
