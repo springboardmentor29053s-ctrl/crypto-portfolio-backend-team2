@@ -1,0 +1,22 @@
+package com.example.backend.dto;
+
+public class ExchangeRequest {
+
+    private Long exchangeId;
+    private String apiKey;
+    private String apiSecret;
+    private String label;
+
+    // Getters & Setters
+    public Long getExchangeId() { return exchangeId; }
+    public void setExchangeId(Long exchangeId) { this.exchangeId = exchangeId; }
+
+    public String getApiKey() { return apiKey; }
+    public void setApiKey(String apiKey) { this.apiKey = apiKey; }
+
+    public String getApiSecret() { return apiSecret; }
+    public void setApiSecret(String apiSecret) { this.apiSecret = apiSecret; }
+
+    public String getLabel() { return label; }
+    public void setLabel(String label) { this.label = label; }
+}
