@@ -5,7 +5,6 @@ import com.example.backend.entity.Holding;
 import com.example.backend.entity.User;
 import com.example.backend.repository.UserRepository;
 import com.example.backend.service.HoldingsService;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -16,11 +15,13 @@ import java.util.List;
 @CrossOrigin(origins = "http://localhost:3000")
 public class HoldingsController {
 
-    @Autowired
-    private HoldingsService holdingsService;
+    private final HoldingsService holdingsService;
+    private final UserRepository userRepository;
 
-    @Autowired
-    private UserRepository userRepository;
+    public HoldingsController(HoldingsService holdingsService, UserRepository userRepository) {
+        this.holdingsService = holdingsService;
+        this.userRepository = userRepository;
+    }
 
     @GetMapping("/{userId}")
     public ResponseEntity<List<Holding>> getHoldingsByUserId(@PathVariable Long userId) {
@@ -40,12 +41,11 @@ public class HoldingsController {
 
     @GetMapping("/unrealized-pnl/{userId}")
     public ResponseEntity<Double> getUnrealizedPnlByUserId(@PathVariable Long userId) {
-
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new RuntimeException("User not found"));
 
         Double pnl = holdingsService.getUnrealizedPnl(user);
-        pnl = Math.round(pnl * 100.0) / 100.0;
+        pnl = Math.round((pnl == null ? 0.0 : pnl) * 100.0) / 100.0;
 
         return ResponseEntity.ok(pnl);
     }
@@ -58,6 +58,7 @@ public class HoldingsController {
 
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new RuntimeException("User not found"));
+
         newHolding.setUser(user);
 
         if (exchangeId != null) {

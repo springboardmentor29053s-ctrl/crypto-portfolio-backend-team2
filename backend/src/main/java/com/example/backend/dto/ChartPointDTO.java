@@ -2,30 +2,30 @@ package com.example.backend.dto;
 
 public class ChartPointDTO {
 
-    private Long time;
-    private Double price;
+    private long time;
+    private double price;
 
     public ChartPointDTO() {
     }
 
-    public ChartPointDTO(Long time, Double price) {
+    public ChartPointDTO(long time, double price) {
         this.time = time;
         this.price = price;
     }
 
-    public Long getTime() {
+    public long getTime() {
         return time;
     }
 
-    public void setTime(Long time) {
-        this.time = time;
-    }
-
-    public Double getPrice() {
+    public double getPrice() {
         return price;
     }
 
-    public void setPrice(Double price) {
+    public void setTime(long time) {
+        this.time = time;
+    }
+
+    public void setPrice(double price) {
         this.price = price;
     }
 }

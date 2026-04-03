@@ -1,8 +1,14 @@
 package com.example.backend.service;
 
 import com.example.backend.dto.TradeRequestDTO;
-import com.example.backend.entity.*;
-import com.example.backend.repository.*;
+import com.example.backend.entity.Exchange;
+import com.example.backend.entity.Holding;
+import com.example.backend.entity.Trade;
+import com.example.backend.entity.User;
+import com.example.backend.repository.ExchangeRepository;
+import com.example.backend.repository.HoldingsRepository;
+import com.example.backend.repository.TradeRepository;
+import com.example.backend.repository.UserRepository;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
@@ -18,12 +24,10 @@ public class TradeService {
     private final UserRepository userRepository;
     private final ExchangeRepository exchangeRepository;
 
-    public TradeService(
-            TradeRepository tradeRepository,
-            HoldingsRepository holdingsRepository,
-            UserRepository userRepository,
-            ExchangeRepository exchangeRepository) {
-
+    public TradeService(TradeRepository tradeRepository,
+                        HoldingsRepository holdingsRepository,
+                        UserRepository userRepository,
+                        ExchangeRepository exchangeRepository) {
         this.tradeRepository = tradeRepository;
         this.holdingsRepository = holdingsRepository;
         this.userRepository = userRepository;
@@ -31,8 +35,6 @@ public class TradeService {
     }
 
     public Trade addTrade(TradeRequestDTO dto) {
-
-        System.out.println("Executing Trade -> " + dto.getSide() + " " + dto.getQuantity() + " " + dto.getAssetSymbol());
 
         User user = userRepository.findById(dto.getUserId())
                 .orElseThrow(() -> new RuntimeException("User not found"));
@@ -42,12 +44,11 @@ public class TradeService {
 
         double walletBalance = user.getWalletBalance() == null ? 0.0 : user.getWalletBalance();
 
-        List<Holding> existingHoldings =
-                holdingsRepository.findByUserAndExchangeAndSymbol(
-                        user,
-                        exchange,
-                        dto.getAssetSymbol().toUpperCase()
-                );
+        List<Holding> existingHoldings = holdingsRepository.findByUserAndExchangeAndSymbol(
+                user,
+                exchange,
+                dto.getAssetSymbol().toUpperCase()
+        );
 
         Holding holding;
 
@@ -59,7 +60,6 @@ public class TradeService {
                     holdingsRepository.delete(existingHoldings.get(i));
                 }
             }
-
         } else {
             holding = new Holding();
             holding.setUser(user);
@@ -76,16 +76,16 @@ public class TradeService {
         Trade trade = new Trade();
         trade.setUserId(dto.getUserId());
         trade.setAssetSymbol(dto.getAssetSymbol().toUpperCase());
-        trade.setSide(dto.getSide());
+        trade.setSide(dto.getSide().toUpperCase());
         trade.setQuantity(dto.getQuantity());
         trade.setPrice(dto.getPrice());
-        trade.setFee(dto.getFee());
+        trade.setFee(dto.getFee() == null ? 0.0 : dto.getFee());
         trade.setExchangeId(dto.getExchangeId());
-        trade.setExecutedAt(LocalDateTime.now());
+        trade.setExecutedAt(dto.getExecutedAt() != null ? dto.getExecutedAt() : LocalDateTime.now());
 
-        if (dto.getSide().equalsIgnoreCase("BUY")) {
+        if ("BUY".equalsIgnoreCase(dto.getSide())) {
 
-            double totalAmount = dto.getQuantity() * dto.getPrice() + dto.getFee();
+            double totalAmount = dto.getQuantity() * dto.getPrice() + trade.getFee();
 
             if (walletBalance < totalAmount) {
                 throw new RuntimeException("Insufficient wallet balance");
@@ -105,20 +105,22 @@ public class TradeService {
 
             trade.setRealizedPnl(0.0);
 
-        } else if (dto.getSide().equalsIgnoreCase("SELL")) {
+        } else if ("SELL".equalsIgnoreCase(dto.getSide())) {
 
             if (dto.getQuantity() > currentQty) {
                 throw new RuntimeException("Not enough holdings to sell");
             }
 
-            double sellAmount = dto.getQuantity() * dto.getPrice() - dto.getFee();
+            double sellAmount = dto.getQuantity() * dto.getPrice() - trade.getFee();
             user.setWalletBalance(walletBalance + sellAmount);
             userRepository.save(user);
 
-            double realized = ((dto.getPrice() - currentAvg) * dto.getQuantity()) - dto.getFee();
+            double realized = ((dto.getPrice() - currentAvg) * dto.getQuantity()) - trade.getFee();
             trade.setRealizedPnl(realized);
 
             holding.setAvailable(currentQty - dto.getQuantity());
+        } else {
+            throw new RuntimeException("Invalid trade side");
         }
 
         holdingsRepository.save(holding);
@@ -137,21 +139,36 @@ public class TradeService {
     }
 
     public Map<String, Object> getTaxReport(Long userId) {
-        List<Trade> trades = tradeRepository.findByUserId(userId);
+        List<Trade> allTrades = tradeRepository.findByUserId(userId);
 
-        trades.forEach(t -> {
-            t.setPrice(Math.round((t.getPrice() == null ? 0.0 : t.getPrice()) * 100.0) / 100.0);
-            t.setFee(Math.round((t.getFee() == null ? 0.0 : t.getFee()) * 100.0) / 100.0);
-            t.setRealizedPnl(Math.round((t.getRealizedPnl() == null ? 0.0 : t.getRealizedPnl()) * 100.0) / 100.0);
-        });
+        List<Trade> trades = allTrades.stream()
+                .filter(t -> "SELL".equalsIgnoreCase(t.getSide()))
+                .toList();
 
-        double totalRealizedPnl = trades.stream()
-                .mapToDouble(t -> t.getRealizedPnl() == null ? 0.0 : t.getRealizedPnl())
-                .sum();
+        double totalProfit = 0.0;
+        double totalLoss = 0.0;
+
+        for (Trade t : trades) {
+            double pnl = t.getRealizedPnl() == null ? 0.0 : t.getRealizedPnl();
+
+            if (pnl >= 0) {
+                totalProfit += pnl;
+            } else {
+                totalLoss += pnl;
+            }
+        }
+
+        double netPnl = totalProfit + totalLoss;
+
+        totalProfit = Math.round(totalProfit * 100.0) / 100.0;
+        totalLoss = Math.round(totalLoss * 100.0) / 100.0;
+        netPnl = Math.round(netPnl * 100.0) / 100.0;
 
         Map<String, Object> response = new LinkedHashMap<>();
         response.put("trades", trades);
-        response.put("totalRealizedPnl", Math.round(totalRealizedPnl * 100.0) / 100.0);
+        response.put("totalProfit", totalProfit);
+        response.put("totalLoss", totalLoss);
+        response.put("netPnl", netPnl);
 
         return response;
     }

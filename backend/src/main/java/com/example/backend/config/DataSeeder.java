@@ -10,14 +10,18 @@ import org.springframework.context.annotation.Configuration;
 public class DataSeeder {
 
     @Bean
-    CommandLineRunner seedExchanges(ExchangeRepository exchangeRepository) {
+    public CommandLineRunner loadInitialData(ExchangeRepository exchangeRepository) {
         return args -> {
-            if (exchangeRepository.count() == 0) {
-                exchangeRepository.save(new Exchange("Binance", "https://testnet.binance.vision"));
-                exchangeRepository.save(new Exchange("Coinbase", "https://api.coinbase.com"));
-                System.out.println("Default exchanges inserted successfully.");
-            } else {
-                System.out.println("Exchanges already exist in database.");
+
+            // Insert Binance only if not already present
+            if (!exchangeRepository.existsByName("Binance")) {
+                Exchange binance = new Exchange(
+                        "Binance",
+                        "https://testnet.binance.vision"
+                );
+
+                exchangeRepository.save(binance);
+                System.out.println("Binance exchange added.");
             }
         };
     }

@@ -22,58 +22,46 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
     }
 
     @Override
-    protected boolean shouldNotFilter(HttpServletRequest request) throws ServletException {
-        String path = request.getServletPath();
+    protected boolean shouldNotFilter(HttpServletRequest request) {
+        String requestPath = request.getServletPath();
 
-        return path.startsWith("/api/auth")
-                || path.startsWith("/api/prices");
+        return requestPath.startsWith("/api/auth")
+                || requestPath.startsWith("/api/prices");
     }
 
     @Override
     protected void doFilterInternal(HttpServletRequest request,
                                     HttpServletResponse response,
-                                    FilterChain filterChain)
-            throws ServletException, IOException {
+                                    FilterChain filterChain) throws ServletException, IOException {
 
-        String path = request.getServletPath();
-        String authHeader = request.getHeader("Authorization");
+        String authorizationHeader = request.getHeader("Authorization");
 
-        System.out.println("=== JWT FILTER ===");
-        System.out.println("Path: " + path);
-        System.out.println("Authorization Header: " + authHeader);
-
-        if (authHeader == null || !authHeader.startsWith("Bearer ")) {
-            System.out.println("No Bearer token found");
+        if (authorizationHeader == null || !authorizationHeader.startsWith("Bearer ")) {
             filterChain.doFilter(request, response);
             return;
         }
 
-        String token = authHeader.substring(7);
+        String jwtToken = authorizationHeader.substring(7);
 
         try {
-            String username = jwtService.extractUsername(token);
-            System.out.println("Extracted Username: " + username);
+            String username = jwtService.extractUsername(jwtToken);
 
-            if (username != null &&
-                jwtService.validateToken(token) &&
-                SecurityContextHolder.getContext().getAuthentication() == null) {
+            boolean isValidToken = jwtService.validateToken(jwtToken);
+            boolean isNotAuthenticated =
+                    SecurityContextHolder.getContext().getAuthentication() == null;
 
-                UsernamePasswordAuthenticationToken authentication =
+            if (username != null && isValidToken && isNotAuthenticated) {
+                UsernamePasswordAuthenticationToken authenticationToken =
                         new UsernamePasswordAuthenticationToken(
                                 username,
                                 null,
                                 List.of(new SimpleGrantedAuthority("USER"))
                         );
 
-                SecurityContextHolder.getContext().setAuthentication(authentication);
-
-                System.out.println("Authentication set successfully for: " + username);
-            } else {
-                System.out.println("Token validation failed or auth already exists");
+                SecurityContextHolder.getContext().setAuthentication(authenticationToken);
             }
 
         } catch (Exception e) {
-            System.out.println("JWT Error: " + e.getMessage());
         }
 
         filterChain.doFilter(request, response);

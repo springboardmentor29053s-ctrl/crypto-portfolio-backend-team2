@@ -7,7 +7,6 @@ import com.example.backend.repository.UserRepository;
 import com.example.backend.service.HoldingsService;
 import com.example.backend.service.PortfolioService;
 import com.example.backend.service.TradeService;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
@@ -19,17 +18,20 @@ import java.util.List;
 @CrossOrigin(origins = "http://localhost:3000")
 public class DashboardController {
 
-    @Autowired
-    private UserRepository userRepository;
+    private final UserRepository userRepository;
+    private final PortfolioService portfolioService;
+    private final TradeService tradeService;
+    private final HoldingsService holdingsService;
 
-    @Autowired
-    private PortfolioService portfolioService;
-
-    @Autowired
-    private TradeService tradeService;
-
-    @Autowired
-    private HoldingsService holdingsService;
+    public DashboardController(UserRepository userRepository,
+                               PortfolioService portfolioService,
+                               TradeService tradeService,
+                               HoldingsService holdingsService) {
+        this.userRepository = userRepository;
+        this.portfolioService = portfolioService;
+        this.tradeService = tradeService;
+        this.holdingsService = holdingsService;
+    }
 
     @GetMapping
     public ResponseEntity<?> getDashboard(Authentication authentication) {

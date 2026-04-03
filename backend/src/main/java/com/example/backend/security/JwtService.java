@@ -4,6 +4,7 @@ import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.SignatureAlgorithm;
 import io.jsonwebtoken.security.Keys;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.security.Key;
@@ -12,25 +13,32 @@ import java.util.Date;
 @Service
 public class JwtService {
 
-    private final String SECRET = "mysecretkeymysecretkeymysecretkeymysecretkey";
-    private final Key key = Keys.hmacShaKeyFor(SECRET.getBytes());
+    @Value("${app.jwt.secret}")
+    private String secret;
 
-    // ✅ Generate token (1 hour)
+    @Value("${app.jwt.expiration-ms:3600000}")
+    private long expirationMs;
+
+    private Key getSigningKey() {
+        return Keys.hmacShaKeyFor(secret.getBytes());
+    }
+
     public String generateToken(String username) {
+        Date now = new Date();
+        Date expiry = new Date(now.getTime() + expirationMs);
+
         return Jwts.builder()
                 .setSubject(username)
-                .setIssuedAt(new Date())
-                .setExpiration(new Date(System.currentTimeMillis() + 1000 * 60 * 60))
-                .signWith(key, SignatureAlgorithm.HS256)
+                .setIssuedAt(now)
+                .setExpiration(expiry)
+                .signWith(getSigningKey(), SignatureAlgorithm.HS256)
                 .compact();
     }
 
-    // ✅ Extract username (email)
     public String extractUsername(String token) {
         return extractAllClaims(token).getSubject();
     }
 
-    // ✅ FINAL VALIDATION METHOD (IMPORTANT)
     public boolean validateToken(String token) {
         try {
             Claims claims = extractAllClaims(token);
@@ -40,10 +48,9 @@ public class JwtService {
         }
     }
 
-    // ✅ Internal method
     private Claims extractAllClaims(String token) {
         return Jwts.parserBuilder()
-                .setSigningKey(key)
+                .setSigningKey(getSigningKey())
                 .build()
                 .parseClaimsJws(token)
                 .getBody();

@@ -3,19 +3,21 @@ package com.example.backend.service;
 import com.example.backend.dto.ChartPointDTO;
 import com.example.backend.dto.CoinDetailDTO;
 import com.example.backend.dto.CoinMarketDTO;
+import com.example.backend.entity.PriceSnapshot;
+import com.example.backend.repository.PriceSnapshotRepository;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
 
+import java.time.LocalDateTime;
 import java.util.*;
 
 @Service
 public class PriceService {
 
-    @Autowired
-    private RiskService riskService;
+    private final RiskService riskService;
+    private final PriceSnapshotRepository priceSnapshotRepository;
 
     private final RestTemplate restTemplate = new RestTemplate();
     private final ObjectMapper objectMapper = new ObjectMapper();
@@ -32,8 +34,13 @@ public class PriceService {
     private final Map<String, List<ChartPointDTO>> historyCache = new HashMap<>();
     private final Map<String, Long> historyCacheTime = new HashMap<>();
 
-    public List<CoinMarketDTO> getMarketPrices(String currency, int page, int rows) {
+    public PriceService(RiskService riskService,
+                        PriceSnapshotRepository priceSnapshotRepository) {
+        this.riskService = riskService;
+        this.priceSnapshotRepository = priceSnapshotRepository;
+    }
 
+    public List<CoinMarketDTO> getMarketPrices(String currency, int page, int rows) {
         long now = System.currentTimeMillis();
         String vsCurrency = (currency == null || currency.isBlank()) ? "usd" : currency.toLowerCase();
 
@@ -56,24 +63,25 @@ public class PriceService {
             String response = restTemplate.getForObject(url, String.class);
             JsonNode root = objectMapper.readTree(response);
 
-            List<CoinMarketDTO> coins = new ArrayList<>();
+            List<CoinMarketDTO> coins = new ArrayList<>(rows);
 
             for (JsonNode coin : root) {
                 CoinMarketDTO dto = new CoinMarketDTO();
 
-                dto.setId(coin.get("id").asText());
-                dto.setSymbol(coin.get("symbol").asText());
-                dto.setName(coin.get("name").asText());
-                dto.setImage(coin.get("image").asText());
-                dto.setCurrentPrice(coin.get("current_price").isNull() ? 0.0 : coin.get("current_price").asDouble());
-                dto.setMarketCap(coin.get("market_cap").isNull() ? 0.0 : coin.get("market_cap").asDouble());
-                dto.setTotalVolume(coin.get("total_volume").isNull() ? 0.0 : coin.get("total_volume").asDouble());
-                dto.setHigh24h(coin.get("high_24h").isNull() ? 0.0 : coin.get("high_24h").asDouble());
-                dto.setLow24h(coin.get("low_24h").isNull() ? 0.0 : coin.get("low_24h").asDouble());
+                dto.setId(coin.path("id").asText());
+                dto.setSymbol(coin.path("symbol").asText());
+                dto.setName(coin.path("name").asText());
+                dto.setImage(coin.path("image").asText());
 
-                double priceChange = coin.get("price_change_percentage_24h").isNull()
+                dto.setCurrentPrice(coin.path("current_price").isNull() ? 0.0 : coin.path("current_price").asDouble());
+                dto.setMarketCap(coin.path("market_cap").isNull() ? 0.0 : coin.path("market_cap").asDouble());
+                dto.setTotalVolume(coin.path("total_volume").isNull() ? 0.0 : coin.path("total_volume").asDouble());
+                dto.setHigh24h(coin.path("high_24h").isNull() ? 0.0 : coin.path("high_24h").asDouble());
+                dto.setLow24h(coin.path("low_24h").isNull() ? 0.0 : coin.path("low_24h").asDouble());
+
+                double priceChange = coin.path("price_change_percentage_24h").isNull()
                         ? 0.0
-                        : coin.get("price_change_percentage_24h").asDouble();
+                        : coin.path("price_change_percentage_24h").asDouble();
 
                 dto.setPriceChangePercentage24h(priceChange);
 
@@ -91,12 +99,14 @@ public class PriceService {
                 String riskLevel = riskService.calculateRisk(
                         priceChange,
                         dto.getMarketCap(),
-                        dto.getTotalVolume()
+                        dto.getTotalVolume(),
+                        dto.getId()
                 );
 
                 String riskReason = riskService.calculateRiskReason(
                         priceChange,
-                        dto.getMarketCap()
+                        dto.getMarketCap(),
+                        dto.getId()
                 );
 
                 dto.setRiskLevel(riskLevel);
@@ -104,6 +114,8 @@ public class PriceService {
 
                 coins.add(dto);
             }
+
+            saveSnapshots(coins);
 
             cachedMarkets = coins;
             cachedPage = page;
@@ -114,19 +126,14 @@ public class PriceService {
             return coins;
 
         } catch (Exception e) {
-            if (cachedMarkets != null
-                    && cachedPage == page
-                    && cachedRows == rows
-                    && cachedCurrency.equals(vsCurrency)) {
+            if (cachedMarkets != null) {
                 return cachedMarkets;
             }
-
-            throw new RuntimeException("Failed to fetch market prices: " + e.getMessage());
+            return new ArrayList<>();
         }
     }
 
     public CoinDetailDTO getCoinDetails(String coinId, String currency) {
-
         long now = System.currentTimeMillis();
         String vsCurrency = (currency == null || currency.isBlank()) ? "usd" : currency.toLowerCase();
         String key = coinId + "-" + vsCurrency;
@@ -145,39 +152,72 @@ public class PriceService {
             String response = restTemplate.getForObject(url, String.class);
             JsonNode root = objectMapper.readTree(response);
 
-            if (root.isEmpty()) {
-                throw new RuntimeException("Coin not found");
+            if (!root.isEmpty()) {
+                JsonNode coin = root.get(0);
+
+                CoinDetailDTO dto = new CoinDetailDTO();
+                dto.setId(coin.path("id").asText());
+                dto.setSymbol(coin.path("symbol").asText());
+                dto.setName(coin.path("name").asText());
+                dto.setImage(coin.path("image").asText());
+                dto.setCurrentPrice(coin.path("current_price").asDouble(0));
+                dto.setMarketCap(coin.path("market_cap").asDouble(0));
+                dto.setHigh24h(coin.path("high_24h").asDouble(0));
+                dto.setLow24h(coin.path("low_24h").asDouble(0));
+                dto.setTotalVolume(coin.path("total_volume").asDouble(0));
+                dto.setPriceChangePercentage24h(coin.path("price_change_percentage_24h").asDouble(0));
+
+                String riskLevel = riskService.calculateRisk(
+                        dto.getPriceChangePercentage24h(),
+                        dto.getMarketCap(),
+                        dto.getTotalVolume(),
+                        dto.getId()
+                );
+                String riskReason = riskService.calculateRiskReason(
+                        dto.getPriceChangePercentage24h(),
+                        dto.getMarketCap(),
+                        dto.getId()
+                );
+
+                dto.setRiskLevel(riskLevel);
+                dto.setRiskReason(riskReason);
+
+                coinDetailCache.put(key, dto);
+                coinDetailCacheTime.put(key, now);
+
+                return dto;
             }
-
-            JsonNode coin = root.get(0);
-
-            CoinDetailDTO dto = new CoinDetailDTO();
-            dto.setId(coin.get("id").asText());
-            dto.setSymbol(coin.get("symbol").asText());
-            dto.setName(coin.get("name").asText());
-            dto.setImage(coin.get("image").asText());
-            dto.setCurrentPrice(coin.get("current_price").isNull() ? 0.0 : coin.get("current_price").asDouble());
-            dto.setMarketCap(coin.get("market_cap").isNull() ? 0.0 : coin.get("market_cap").asDouble());
-            dto.setHigh24h(coin.get("high_24h").isNull() ? 0.0 : coin.get("high_24h").asDouble());
-            dto.setLow24h(coin.get("low_24h").isNull() ? 0.0 : coin.get("low_24h").asDouble());
-            dto.setTotalVolume(coin.get("total_volume").isNull() ? 0.0 : coin.get("total_volume").asDouble());
-
-            coinDetailCache.put(key, dto);
-            coinDetailCacheTime.put(key, now);
-
-            return dto;
-
-        } catch (Exception e) {
-            if (coinDetailCache.containsKey(key)) {
-                return coinDetailCache.get(key);
-            }
-
-            throw new RuntimeException("Failed to fetch coin details: " + e.getMessage());
+        } catch (Exception ignored) {
         }
+
+        List<CoinMarketDTO> fallbackMarkets = getMarketPrices(vsCurrency, 1, 100);
+        for (CoinMarketDTO coin : fallbackMarkets) {
+            if (coinId.equalsIgnoreCase(coin.getId())) {
+                CoinDetailDTO fallback = new CoinDetailDTO();
+                fallback.setId(coin.getId());
+                fallback.setSymbol(coin.getSymbol());
+                fallback.setName(coin.getName());
+                fallback.setImage(coin.getImage());
+                fallback.setCurrentPrice(coin.getCurrentPrice());
+                fallback.setMarketCap(coin.getMarketCap());
+                fallback.setHigh24h(coin.getHigh24h());
+                fallback.setLow24h(coin.getLow24h());
+                fallback.setTotalVolume(coin.getTotalVolume());
+                fallback.setPriceChangePercentage24h(coin.getPriceChangePercentage24h());
+                fallback.setRiskLevel(coin.getRiskLevel());
+                fallback.setRiskReason(coin.getRiskReason());
+
+                coinDetailCache.put(key, fallback);
+                coinDetailCacheTime.put(key, now);
+
+                return fallback;
+            }
+        }
+
+        return new CoinDetailDTO();
     }
 
     public List<ChartPointDTO> getCoinHistory(String coinId, int days, String currency) {
-
         long now = System.currentTimeMillis();
         String vsCurrency = (currency == null || currency.isBlank()) ? "usd" : currency.toLowerCase();
         String key = coinId + "-" + days + "-" + vsCurrency;
@@ -197,7 +237,7 @@ public class PriceService {
 
             List<ChartPointDTO> history = new ArrayList<>();
 
-            for (JsonNode point : root.get("prices")) {
+            for (JsonNode point : root.path("prices")) {
                 history.add(new ChartPointDTO(
                         point.get(0).asLong(),
                         point.get(1).asDouble()
@@ -210,18 +250,15 @@ public class PriceService {
             return history;
 
         } catch (Exception e) {
-            if (historyCache.containsKey(key)) {
-                return historyCache.get(key);
-            }
-
-            throw new RuntimeException("Failed to fetch coin history: " + e.getMessage());
+            return historyCache.getOrDefault(key, new ArrayList<>());
         }
     }
 
     public Map<String, Double> getCurrentPriceMap() {
-        List<CoinMarketDTO> coins = getMarketPrices("usd", 1, 250);
+        List<CoinMarketDTO> coins = getMarketPrices("usd", 1, 100);
 
         Map<String, Double> priceMap = new HashMap<>();
+
         for (CoinMarketDTO coin : coins) {
             if (coin.getSymbol() != null && coin.getCurrentPrice() != null) {
                 priceMap.put(coin.getSymbol().toUpperCase(), coin.getCurrentPrice());
@@ -229,5 +266,21 @@ public class PriceService {
         }
 
         return priceMap;
+    }
+
+    public void saveSnapshots(List<CoinMarketDTO> coins) {
+        try {
+            List<PriceSnapshot> snapshots = new ArrayList<>();
+            for (CoinMarketDTO coin : coins) {
+                PriceSnapshot snapshot = new PriceSnapshot();
+                snapshot.setSymbol(coin.getSymbol() == null ? "" : coin.getSymbol().toUpperCase());
+                snapshot.setPrice(coin.getCurrentPrice() == null ? 0.0 : coin.getCurrentPrice());
+                snapshot.setMarketCap(coin.getMarketCap() == null ? 0.0 : coin.getMarketCap());
+                snapshot.setCapturedAt(LocalDateTime.now());
+                snapshots.add(snapshot);
+            }
+            priceSnapshotRepository.saveAll(snapshots);
+        } catch (Exception ignored) {
+        }
     }
 }

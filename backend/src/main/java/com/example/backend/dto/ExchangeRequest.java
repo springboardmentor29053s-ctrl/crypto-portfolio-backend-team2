@@ -7,16 +7,35 @@ public class ExchangeRequest {
     private String apiSecret;
     private String label;
 
-    // Getters & Setters
-    public Long getExchangeId() { return exchangeId; }
-    public void setExchangeId(Long exchangeId) { this.exchangeId = exchangeId; }
+    public Long getExchangeId() {
+        return exchangeId;
+    }
 
-    public String getApiKey() { return apiKey; }
-    public void setApiKey(String apiKey) { this.apiKey = apiKey; }
+    public void setExchangeId(Long exchangeId) {
+        this.exchangeId = exchangeId;
+    }
 
-    public String getApiSecret() { return apiSecret; }
-    public void setApiSecret(String apiSecret) { this.apiSecret = apiSecret; }
+    public String getApiKey() {
+        return apiKey;
+    }
 
-    public String getLabel() { return label; }
-    public void setLabel(String label) { this.label = label; }
+    public void setApiKey(String apiKey) {
+        this.apiKey = apiKey;
+    }
+
+    public String getApiSecret() {
+        return apiSecret;
+    }
+
+    public void setApiSecret(String apiSecret) {
+        this.apiSecret = apiSecret;
+    }
+
+    public String getLabel() {
+        return label;
+    }
+
+    public void setLabel(String label) {
+        this.label = label;
+    }
 }

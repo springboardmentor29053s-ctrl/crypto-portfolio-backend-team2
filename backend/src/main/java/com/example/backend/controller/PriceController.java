@@ -26,8 +26,7 @@ public class PriceController {
             @RequestParam(defaultValue = "1") int page,
             @RequestParam(defaultValue = "10") int rows
     ) {
-        List<CoinMarketDTO> prices = priceService.getMarketPrices(currency, page, rows);
-        return ResponseEntity.ok(prices);
+        return ResponseEntity.ok(priceService.getMarketPrices(currency, page, rows));
     }
 
     @GetMapping("/coin/{coinId}")
@@ -35,8 +34,7 @@ public class PriceController {
             @PathVariable String coinId,
             @RequestParam(defaultValue = "usd") String currency
     ) {
-        CoinDetailDTO coin = priceService.getCoinDetails(coinId, currency);
-        return ResponseEntity.ok(coin);
+        return ResponseEntity.ok(priceService.getCoinDetails(coinId, currency));
     }
 
     @GetMapping("/history/{coinId}")
@@ -45,7 +43,6 @@ public class PriceController {
             @RequestParam(defaultValue = "7") int days,
             @RequestParam(defaultValue = "usd") String currency
     ) {
-        List<ChartPointDTO> history = priceService.getCoinHistory(coinId, days, currency);
-        return ResponseEntity.ok(history);
+        return ResponseEntity.ok(priceService.getCoinHistory(coinId, days, currency));
     }
 }
