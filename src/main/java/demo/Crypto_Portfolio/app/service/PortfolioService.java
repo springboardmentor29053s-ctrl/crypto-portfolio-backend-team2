@@ -29,6 +29,10 @@ import java.util.List;
 import java.util.ArrayList;
 import java.util.Map;
 import java.util.HashMap;
+import java.time.format.DateTimeFormatter;
+import java.time.Duration;
+import java.util.Optional;
+
 
 
 @Service
@@ -228,6 +232,7 @@ public class PortfolioService {
         List<Holding> holdings = holdingRepository.findByUserId(userId);
         List<RiskAlertDTO> alerts = new ArrayList<>();
 
+        // Total portfolio value (based on investment)
         double totalValue = holdings.stream()
                 .mapToDouble(h -> h.getQuantity() * h.getAvgCost())
                 .sum();
@@ -236,39 +241,54 @@ public class PortfolioService {
 
             String symbol = h.getAssetSymbol();
 
-            double value = h.getQuantity() * h.getAvgCost();
-            double exposure = totalValue == 0 ? 0 : value / totalValue;
+            double invested = h.getQuantity() * h.getAvgCost();
+            double exposure = totalValue == 0 ? 0 : invested / totalValue;
 
+            // 🔶 1. High Concentration Alert
             if (exposure > 0.5) {
-                alerts.add(new RiskAlertDTO(symbol,
+                alerts.add(new RiskAlertDTO(
+                        symbol,
                         "⚠️ High concentration in " + symbol,
-                        "HIGH"));
+                        "HIGH"
+                ));
             }
 
-            double pnlPercent = ((value - (h.getQuantity() * h.getAvgCost())) / (h.getAvgCost() == 0 ? 1 : h.getAvgCost())) * 100;
+            // 🔶 2. Price Drop Alert (FIXED LOGIC)
+            double livePrice = snapshotRepository
+                    .findTopByCoinSymbolOrderByTimestampDesc(symbol)
+                    .map(PriceSnapshot::getPrice)
+                    .orElse(0.0);
+
+            double currentValue = h.getQuantity() * livePrice;
+
+            double pnlPercent = ((currentValue - invested) / (invested == 0 ? 1 : invested)) * 100;
 
             if (pnlPercent < -5) {
-                alerts.add(new RiskAlertDTO(symbol,
+                alerts.add(new RiskAlertDTO(
+                        symbol,
                         "📉 " + symbol + " dropped significantly",
-                        "MEDIUM"));
+                        "MEDIUM"
+                ));
             }
 
-            // Scam alert (no DB spam)
+            // 🔶 3. Scam Detection
             if (h.getContractAddress() != null && !h.getContractAddress().isEmpty()) {
 
                 boolean scam = scamService.isScamToken(h.getContractAddress());
 
                 if (scam) {
-                    alerts.add(new RiskAlertDTO(symbol,
+                    alerts.add(new RiskAlertDTO(
+                            symbol,
                             "🚨 Scam token detected",
-                            "CRITICAL"));
+                            "CRITICAL"
+                    ));
                 }
             }
+
         }
 
         return alerts;
     }
-
     // =============================
     // PnL METHODS
     // =============================
@@ -283,11 +303,11 @@ public class PortfolioService {
 
             if ("SELL".equalsIgnoreCase(t.getSide())) {
 
-                double buyPrice = tradeRepository
-                        .findTopByUserIdAndSymbolAndSideOrderByExecutedAtDesc(
-                                userId, t.getSymbol(), "BUY")
-                        .map(Trade::getPrice)
-                        .orElse(0.0);
+                Optional<Trade> buyTrade = tradeRepository
+                        .findTopByUserIdAndSymbolAndSideAndExecutedAtBeforeOrderByExecutedAtDesc(
+                                userId, t.getSymbol(), "BUY", t.getExecutedAt());
+
+                double buyPrice = buyTrade.map(Trade::getPrice).orElse(0.0);
 
                 realized += (t.getPrice() - buyPrice) * t.getQuantity();
             }
@@ -378,26 +398,48 @@ public class PortfolioService {
     // =============================
     // TAX CSV EXPORT (NEW)
     // =============================
+
+
     public String generateTaxReportCsv(Long userId) {
 
-        List<Trade> trades = tradeRepository.findByUserId(userId);
+        List<Trade> trades = tradeRepository.findByUserIdOrderByExecutedAtDesc(userId);
 
         StringBuilder csv = new StringBuilder();
 
-        csv.append("Date,Symbol,Type,Quantity,Buy Price,Sell Price,Profit/Loss,Category\n");
+        // HEADER
+        csv.append("Date,Symbol,Type,Quantity,Buy Price,Sell Price,Profit/Loss,Category,Tax Insight,Holding Type\n");
+
+        DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd");
 
         for (Trade t : trades) {
 
             if ("SELL".equalsIgnoreCase(t.getSide())) {
 
-                double buyPrice = tradeRepository
-                        .findTopByUserIdAndSymbolAndSideOrderByExecutedAtDesc(
-                                userId, t.getSymbol(), "BUY")
-                        .map(Trade::getPrice)
-                        .orElse(0.0);
+                // Fetch BUY trade
+                Optional<Trade> buyTrade = tradeRepository
+                        .findTopByUserIdAndSymbolAndSideAndExecutedAtBeforeOrderByExecutedAtDesc(
+                                userId,
+                                t.getSymbol(),
+                                "BUY",
+                                t.getExecutedAt()
+                        );
 
+                double buyPrice = 0.0;
+                long holdingDays = 0;
+
+                if (buyTrade.isPresent()) {
+                    buyPrice = buyTrade.get().getPrice();
+
+                    holdingDays = Duration.between(
+                            buyTrade.get().getExecutedAt(),
+                            t.getExecutedAt()
+                    ).toDays();
+                }
+
+                // Profit calculation (even if buy missing)
                 double profit = (t.getPrice() - buyPrice) * t.getQuantity();
 
+                // Category
                 String category;
                 if (profit > 0) {
                     category = "PROFIT";
@@ -407,14 +449,36 @@ public class PortfolioService {
                     category = "NO_GAIN";
                 }
 
-                csv.append(t.getExecutedAt()).append(",")
+                // Tax Insight (safe logic)
+                String taxInsight;
+                if (!buyTrade.isPresent()) {
+                    taxInsight = "No buy data (estimation)";
+                } else if (profit > 0) {
+                    taxInsight = "May be taxable";
+                } else {
+                    taxInsight = "No tax (loss)";
+                }
+
+                // Holding Type
+                String holdingType;
+                if (!buyTrade.isPresent()) {
+                    holdingType = "Unknown";
+                } else {
+                    holdingType = holdingDays < 365 ? "Short-Term" : "Long-Term";
+                }
+
+                // Append row (IMPORTANT: always append)
+                csv.append(t.getExecutedAt().format(formatter)).append(",")
                         .append(t.getSymbol()).append(",")
                         .append(t.getSide()).append(",")
                         .append(t.getQuantity()).append(",")
                         .append(buyPrice).append(",")
                         .append(t.getPrice()).append(",")
                         .append(profit).append(",")
-                        .append(category).append("\n");
+                        .append("\"").append(category).append("\"").append(",")
+                        .append("\"").append(taxInsight).append("\"").append(",")
+                        .append("\"").append(holdingType).append("\"")
+                        .append("\n");
             }
         }
 
