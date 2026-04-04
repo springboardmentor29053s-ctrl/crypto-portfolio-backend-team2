@@ -29,11 +29,13 @@ public class ExchangeAccountService {
     private final UserRepository userRepository;
     private final OrderService orderService;
     private final BinanceBalanceRepository binanceBalanceRepo;
+    private final CryptoScamService cryptoScamService;
+    private final NotificationService notificationService;
 
     public ExchangeAccountService(ExchangeRepository exchangeRepository,
                                   ExchangeAccountRepository exchangeAccountRepository, TradeRecordRepository tradeRecordRepo,
                                   ExchangeConnectorFactory exchangeConnectorFactory,
-                                  CryptoUtil cryptoUtil, UserRepository userRepository, OrderService orderService, BinanceBalanceRepository binanceBalanceRepo) {
+                                  CryptoUtil cryptoUtil, UserRepository userRepository, OrderService orderService, BinanceBalanceRepository binanceBalanceRepo, CryptoScamService cryptoScamService, NotificationService notificationService) {
         this.exchangeRepository = exchangeRepository;
         this.exchangeAccountRepository = exchangeAccountRepository;
         this.tradeRecordRepo = tradeRecordRepo;
@@ -42,6 +44,8 @@ public class ExchangeAccountService {
         this.userRepository = userRepository;
         this.orderService = orderService;
         this.binanceBalanceRepo = binanceBalanceRepo;
+        this.cryptoScamService = cryptoScamService;
+        this.notificationService = notificationService;
     }
 
     /// Todo: Connect user to exchange by saving encrypted API keys in the database
@@ -131,6 +135,7 @@ public class ExchangeAccountService {
         return orderResponse;
     }
 
+
     /// TODO: add symbol parameter to get balances for specific trading pair
     public List<BinanceBalance> getBalancesForUserByEmail(String email, String exchangeName) {
         UserEntity user = userRepository.findByEmail(email)
@@ -140,14 +145,6 @@ public class ExchangeAccountService {
                 .stream()
                 .sorted((a,b) -> b.getFree().compareTo(a.getFree()))
                 .toList();
-    }
-
-    public List<BinanceBalance> getStoredBalances(Integer userId) {
-
-        UserEntity user = userRepository.findById(Long.valueOf(userId))
-                .orElseThrow(() -> new RuntimeException("User not found"));
-
-        return binanceBalanceRepo.findByUser(user);
     }
 
     @Transactional

@@ -8,10 +8,8 @@ import com.crypto_portfolio_tracker.model.Holding;
 import com.crypto_portfolio_tracker.model.PortfolioHistory;
 import com.crypto_portfolio_tracker.model.TradeRecord;
 import com.crypto_portfolio_tracker.model.UserEntity;
-import com.crypto_portfolio_tracker.repository.HoldingRepository;
-import com.crypto_portfolio_tracker.repository.PortfolioHistoryRepository;
-import com.crypto_portfolio_tracker.repository.TradeRecordRepository;
-import com.crypto_portfolio_tracker.repository.UserRepository;
+import com.crypto_portfolio_tracker.repository.*;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
@@ -21,30 +19,34 @@ import org.springframework.web.client.RestTemplate;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDateTime;
-import java.util.ArrayList;
-import java.util.Comparator;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 
 @Service
+@Slf4j
 public class PortfolioService {
 
-    @Value("${binance.api.base-url}")
+    @Value("${binance.api.base2-url}")
     private String baseUrl;
 
     @Value("${binance.api.ticker-price}")
     private String tickerPriceEndpoint;
-
-     private final TradeRecordRepository tradeRecordRepo;
+    
+    private final TradeRecordRepository tradeRecordRepo;
      private final HoldingRepository holdingRepo;
      private final UserRepository userRepo;
      private final PortfolioHistoryRepository portfolioHistoryRepo;
+     private final CryptoScamService cryptoScamService;
+     private final ScamTokenRepository scamTokenRepository;
 
-    public PortfolioService(TradeRecordRepository tradeRecordRepo, HoldingRepository holdingRepo, UserRepository userRepo, PortfolioHistoryRepository portfolioHistoryRepo) {
+    public PortfolioService(TradeRecordRepository tradeRecordRepo, HoldingRepository holdingRepo,
+                            UserRepository userRepo, PortfolioHistoryRepository portfolioHistoryRepo,
+                            CryptoScamService cryptoScamService, ScamTokenRepository scamTokenRepository, EtherscanService etherscanService) {
         this.tradeRecordRepo = tradeRecordRepo;
         this.holdingRepo = holdingRepo;
         this.userRepo = userRepo;
         this.portfolioHistoryRepo = portfolioHistoryRepo;
+        this.cryptoScamService = cryptoScamService;
+        this.scamTokenRepository = scamTokenRepository;
     }
 
     public  void recalculate(String email){
@@ -152,6 +154,35 @@ public class PortfolioService {
             throw new RuntimeException("Unknown trade side: " + trade.getSide());
         }
 
+
+        // ===== SET RISK LEVEL =====
+        String risk = "LOW";
+
+       // HIGH risk → scam token
+        if (scamTokenRepository.findBySymbolIgnoreCase(asset).isPresent()) {
+            risk = "HIGH";
+        }
+
+          // MEDIUM → volatility (basic logic)
+        else {
+            try {
+                BigDecimal marketPrice = getMarketPrice(asset + "USDT");
+
+                if (marketPrice.compareTo(BigDecimal.ZERO) > 0) {
+                    risk = "MEDIUM";
+                }
+            } catch (Exception ignored) {}
+        }
+
+        // Safe coins override
+        if (asset.equalsIgnoreCase("BTC") ||
+                asset.equalsIgnoreCase("ETH") ||
+                asset.equalsIgnoreCase("BNB")) {
+            risk = "LOW";
+        }
+
+        holding.setRiskLevel(risk);
+
         holdingRepo.saveAndFlush(holding);
     }
 
@@ -162,30 +193,34 @@ public class PortfolioService {
         throw new RuntimeException("Unsupported symbol format: " + symbol);
     }
 
+
+    /// Holding with assets and risk levels
     public List<HoldingDTO> getHoldingsForUser(UserEntity user) {
         List<Holding> holdings = holdingRepo.findByUser(user);
 
-        return holdings.stream()
-                .map(h -> new HoldingDTO(
-                        h.getId(),
-                        h.getAsset(),
-                        h.getQuantity(),
-                        h.getAverageCost(),
-                        h.getRealizedProfitLoss()
-                ))
-                .toList();
-    }
 
-    public List<Holding> getUserPortfolio(UserEntity user) {
-        return holdingRepo.findByUser(user);
+        return holdings.stream().map(h -> new HoldingDTO(
+                h.getId(),
+                h.getAsset(),
+                h.getQuantity(),
+                h.getAverageCost(),
+                h.getRealizedProfitLoss(),
+                h.getRiskLevel()
+        )).toList();
     }
 
     private BigDecimal getMarketPrice(String symbol) {
 
         String url = baseUrl + tickerPriceEndpoint + "?symbol="+ symbol;
-        RestTemplate restTemplate = new RestTemplate();
-        Map<String, String> response = restTemplate.getForObject(url, Map.class);
-        return new BigDecimal(response.get("price"));
+        try {
+            Map response = new RestTemplate().getForObject(url, Map.class);
+            if (response != null && response.get("price") != null) {
+                return new BigDecimal(response.get("price").toString());
+            }
+        } catch (Exception e) {
+            log.error("Failed to fetch market price for {}: {}", symbol, e.getMessage());
+        }
+        return BigDecimal.ZERO;
     }
 
     public PortfolioValueResponse getPortfolioValue(UserEntity user){
@@ -247,7 +282,7 @@ public class PortfolioService {
         }
     }
 
-    //realized and unrealizablepnl with total value
+    ///realized and unrealizable profitability with total value
     public PortfolioSummaryResponse getPortfolioSummary(UserEntity user) {
 
         List<Holding> holdings = holdingRepo.findByUser(user);

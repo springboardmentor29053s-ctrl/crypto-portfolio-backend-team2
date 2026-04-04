@@ -35,4 +35,8 @@ public class Holding {
     @JoinColumn(name = "user_id")
     private UserEntity user;
 
+    private String RiskLevel;
+
+    public String contractAddress;
+
 }
