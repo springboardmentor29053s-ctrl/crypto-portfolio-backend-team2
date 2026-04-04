@@ -140,94 +140,111 @@ public class BinanceConnectorImpl implements ExchangeConnector {
             String symbol,
             String side,
             String type,
-            String quantity,
+            String usdtAmount,   //  USER ENTERS MONEY
             String price) throws Exception {
 
         try {
             apiKey = apiKey.trim();
             secretKey = secretKey.trim();
             symbol = normalizeSymbol(symbol);
+
             long timestamp = getServerTime();
 
             log.info("TYPE = {}", type);
-            log.info("PRICE = {}", price);
             log.info("SYMBOL = {}", symbol);
 
-            if ("LIMIT".equalsIgnoreCase(type)) {
+            //  Step 1: Convert USDT → Quantity
+            BigDecimal amount = new BigDecimal(usdtAmount);
 
+            BigDecimal finalQty = calculateValidQuantity(symbol, amount);
+
+            log.info("FINAL QTY = {}", finalQty);
+
+            // Step 2: Validate MIN NOTIONAL
+            BigDecimal minNotional = BigDecimal.valueOf(getMinNotional(symbol));
+
+            BigDecimal marketPrice = getCurrentPrice(symbol);
+
+            BigDecimal notional;
+
+            if ("MARKET".equalsIgnoreCase(type)) {
+                notional = marketPrice.multiply(finalQty);
+            } else {
                 if (price == null || price.isBlank()) {
                     throw new RuntimeException("Price required for LIMIT order");
                 }
-                BigDecimal minNotional = BigDecimal.valueOf(getMinNotional(symbol));
-                BigDecimal stepSize = getStepSize(symbol);
-                BigDecimal qty = new BigDecimal(quantity);
-                qty = adjustQuantity(qty, stepSize);
-
-                quantity = qty.toPlainString();
-                BigDecimal priceBD = new BigDecimal(price);
-                BigDecimal qtyBD = new BigDecimal(quantity);
-
-                BigDecimal notional = priceBD.multiply(qtyBD);
-
-                if (notional.compareTo(minNotional) < 0) {
-                    throw new RuntimeException(
-                            "Order value too small. Minimum required: "
-                                    + minNotional + " but got: " + notional
-                    );
-                }
+                notional = new BigDecimal(price).multiply(finalQty);
             }
 
+            if (notional.compareTo(minNotional) < 0) {
+                throw new RuntimeException(
+                        "Order too small. Minimum required: " + minNotional
+                );
+            }
+
+            //  Step 3: Build request
             UriComponentsBuilder builder = UriComponentsBuilder
                     .fromHttpUrl(baseUrl + "/order")
                     .queryParam("symbol", symbol)
                     .queryParam("side", side)
                     .queryParam("type", type)
-                    .queryParam("quantity", quantity)
+                    .queryParam("quantity", finalQty.toPlainString())
                     .queryParam("timestamp", timestamp);
 
-            if ("LIMIT".equals(type)) {
+            if ("LIMIT".equalsIgnoreCase(type)) {
                 builder.queryParam("timeInForce", "GTC");
                 builder.queryParam("price", price);
             }
 
-            // Build query string
             String queryString = builder.build().getQuery();
 
-            // Sign the query string
             if (queryString == null) {
-                throw new RuntimeException("Failed to build query string");
+                throw new RuntimeException("Failed to build query");
             }
+
             String signature = sign(queryString, secretKey);
 
-            //final request body with signature
             String finalBody = queryString + "&signature=" + signature;
 
             HttpHeaders headers = new HttpHeaders();
             headers.set("X-MBX-APIKEY", apiKey);
             headers.setContentType(MediaType.APPLICATION_FORM_URLENCODED);
+
             HttpEntity<String> entity = new HttpEntity<>(finalBody, headers);
 
-            log.info("FINAL SYMBOL SENT TO BINANCE = '{}'", symbol);
-            ResponseEntity<String> response =
-                    restTemplate.exchange(
-                            baseUrl + "/order",
-                            HttpMethod.POST,
-                            entity,
-                            String.class
-                    );
-            log.info("BINANCE RAW RESPONSE = {}", response.getBody());
+            ResponseEntity<String> response = restTemplate.exchange(
+                    baseUrl + "/order",
+                    HttpMethod.POST,
+                    entity,
+                    String.class
+            );
+
+            log.info("BINANCE RESPONSE = {}", response.getBody());
+
             ObjectMapper mapper = new ObjectMapper();
             return mapper.readValue(response.getBody(), OpenOrder.class);
+
         } catch (Exception e) {
             log.error("Binance Place Order Error", e);
+
             if (e instanceof HttpClientErrorException ex) {
-                log.error("Binance Response Body: {}", ex.getResponseBodyAsString());
+                log.error("Binance Response: {}", ex.getResponseBodyAsString());
             }
+
             throw new ResponseStatusException(
                     HttpStatus.BAD_REQUEST,
-                    "Insufficient Qty balance"
+                    "Order failed: " + e.getMessage()
             );
         }
+    }
+
+
+    private BigDecimal getCurrentPrice(String symbol) {
+        String url = baseUrl + "/ticker/price?symbol=" + symbol;
+        Map<String, String> response =
+                restTemplate.getForObject(url, Map.class);
+
+        return new BigDecimal(response.get("price"));
     }
 
     //is valid symbol method
@@ -244,7 +261,8 @@ public class BinanceConnectorImpl implements ExchangeConnector {
                 (List<Map<String, Object>>) symbolData.get("filters");
 
         for (Map<String, Object> filter : filters) {
-            if ("MIN_NOTIONAL".equals(filter.get("filterType"))) {
+            if ("MIN_NOTIONAL".equals(filter.get("filterType"))
+                || "NOTIONAL".equals(filter.get("filterType"))) {
                 return Double.parseDouble((String) filter.get("minNotional"));
             }
         }
@@ -310,11 +328,37 @@ public class BinanceConnectorImpl implements ExchangeConnector {
 
     private long getServerTime() {
         String url = baseUrl + serverTimeEndpoint;
+        log.info("SERVER TIME URL = {}", url);
         ResponseEntity<Map> response = restTemplate.getForEntity(url, Map.class);
         assert response.getBody() != null;
         return ((Number) response.getBody().get("serverTime")).longValue();
     }
 
+    private BigDecimal calculateValidQuantity(String symbol, BigDecimal usdtAmount) {
+
+        BigDecimal price = getCurrentPrice(symbol);
+        BigDecimal stepSize = getStepSize(symbol);
+        BigDecimal minNotional = BigDecimal.valueOf(getMinNotional(symbol));
+
+        // raw qty
+        BigDecimal qty = usdtAmount.divide(price, 8, RoundingMode.DOWN);
+
+        // adjust to step size
+        qty = adjustQuantity(qty, stepSize);
+
+        // check minimum trade value
+        BigDecimal finalValue = qty.multiply(price);
+
+        if (finalValue.compareTo(minNotional) < 0) {
+            throw new RuntimeException(
+                    "Minimum order value is " + minNotional + " USDT"
+            );
+        }
+        log.info("FINAL QTY = {}", qty);
+        log.info("FINAL VALUE = {}", finalValue);
+
+        return qty;
+    }
 }
 
 

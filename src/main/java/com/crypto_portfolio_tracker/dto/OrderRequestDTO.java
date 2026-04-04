@@ -12,5 +12,6 @@ public class OrderRequestDTO {
     private String quantity;
     private BigDecimal price;     //
     private String exchangeName;
+    private String usdtAmount;
 
 }
