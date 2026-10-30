@@ -16,14 +16,12 @@ import java.util.UUID;
 public class PasswordService {
     private final UserRepository userRepo;
     private final PasswordResetTokenRepository tokenRepo;
-    private final PasswordEncoder passwordEncoder;
 
     public PasswordService(UserRepository userRepo,
                            PasswordResetTokenRepository tokenRepo,
                            PasswordEncoder passwordEncoder) {
         this.userRepo = userRepo;
         this.tokenRepo = tokenRepo;
-        this.passwordEncoder = passwordEncoder;
     }
 
     //  STEP 1: Generate Token
@@ -47,26 +45,26 @@ public class PasswordService {
 
     }
 
-    //  STEP 2: Reset Password
-    public void resetPassword(String token, String newPassword) {
-
-        PasswordResetToken resetToken = tokenRepo.findByToken(token)
-                .orElseThrow(() -> new RuntimeException("Invalid token"));
-
-        if (resetToken.isUsed()) {
-            throw new RuntimeException("Token already used");
-        }
-
-        if (resetToken.getExpiryDate().isBefore(LocalDateTime.now())) {
-            throw new RuntimeException("Token expired");
-        }
-
-        UserEntity user = resetToken.getUser();
-
-        user.setPassword(passwordEncoder.encode(newPassword));
-        userRepo.save(user);
-
-        resetToken.setUsed(true);
-        tokenRepo.save(resetToken);
-    }
+//    //  STEP 2: Reset Password
+//    public void resetPassword(String token, String newPassword) {
+//
+//        PasswordResetToken resetToken = tokenRepo.findByToken(token)
+//                .orElseThrow(() -> new RuntimeException("Invalid token"));
+//
+//        if (resetToken.isUsed()) {
+//            throw new RuntimeException("Token already used");
+//        }
+//
+//        if (resetToken.getExpiryDate().isBefore(LocalDateTime.now())) {
+//            throw new RuntimeException("Token expired");
+//        }
+//
+//        UserEntity user = resetToken.getUser();
+//
+//        user.setPassword(passwordEncoder.encode(newPassword));
+//        userRepo.save(user);
+//
+//        resetToken.setUsed(true);
+//        tokenRepo.save(resetToken);
+//    }
 }
