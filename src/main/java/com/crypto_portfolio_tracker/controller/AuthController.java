@@ -1,9 +1,7 @@
 package com.crypto_portfolio_tracker.controller;
 
 import com.crypto_portfolio_tracker.config.JwtUtil;
-import com.crypto_portfolio_tracker.dto.ForgotPasswordRequest;
 import com.crypto_portfolio_tracker.dto.LoginRequestDTO;
-import com.crypto_portfolio_tracker.repository.PasswordResetTokenRepository;
 import com.crypto_portfolio_tracker.service.PasswordService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
