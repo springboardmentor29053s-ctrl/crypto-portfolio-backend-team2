@@ -1,11 +1,9 @@
 package com.crypto_portfolio_tracker.controller;
 
 import com.crypto_portfolio_tracker.config.JwtUtil;
-import com.crypto_portfolio_tracker.dto.ForgotPasswordRequest;
 import com.crypto_portfolio_tracker.dto.LoginRequestDTO;
-import com.crypto_portfolio_tracker.dto.ResetPasswordRequest;
-import com.crypto_portfolio_tracker.service.CustomUserDetailsService;
 import com.crypto_portfolio_tracker.service.PasswordService;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
@@ -14,6 +12,7 @@ import org.springframework.web.bind.annotation.*;
 import java.util.HashMap;
 import java.util.Map;
 
+@Slf4j
 @RestController
 @RequestMapping("/auth")
 @CrossOrigin(origins = "http://localhost:3000")
@@ -24,7 +23,6 @@ public class AuthController {
     private final PasswordService passwordService;
 
     public AuthController(AuthenticationManager authenticationManager,
-                          CustomUserDetailsService userDetailsService,
                           JwtUtil jwtUtil, PasswordService passwordService) {
         this.authenticationManager = authenticationManager;
         this.jwtUtil = jwtUtil;
@@ -45,22 +43,25 @@ public class AuthController {
         Map<String, String> response = new HashMap<>();
         response.put("token", token);
         response.put("email", request.getEmail());
-
         return ResponseEntity.ok(response);
     }
 
-    // Endpoint for changing password
-    @PostMapping("/forgot-password")
-    public ResponseEntity<String> forgotPassword(@RequestBody ForgotPasswordRequest request) {
-        passwordService.forgotPassword(request);
-        return ResponseEntity.ok("Password reset token sent to email if user exists.");
-    }
+//     //Endpoint for changing password
+//     @PostMapping("/forgot-password")
+//     public ResponseEntity<?> forgotPassword(@RequestBody ForgotPasswordRequest request) {
+//            String email = request.getEmail();
+//        log.debug("Forgot Password Request, {}", email);
+//         return new ResponseEntity<>(passwordService.createResetToken(email), null, 200);
+//     }
 
-    @PostMapping("/reset-password")
-    public ResponseEntity<String> resetPassword(@RequestBody ResetPasswordRequest request) {
-        boolean success = passwordService.resetPassword(request);
-        if (success) return ResponseEntity.ok("Password reset successful.");
-        return ResponseEntity.badRequest().body("Invalid or expired token.");
-    }
-
+//    //  2. Reset Password
+//    @PostMapping("/reset-password")
+//    public String resetPassword(
+//            @RequestParam String token,
+//            @RequestParam String newPassword) {
+//
+//        passwordService.resetPassword(token, newPassword);
+//        log.info("Password reset Success , {}", newPassword);
+//        return "Password reset successful";
+//    }
 }
